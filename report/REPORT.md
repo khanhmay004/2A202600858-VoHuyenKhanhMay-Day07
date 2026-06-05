@@ -112,7 +112,6 @@ Chạy `ChunkingStrategyComparator().compare(text, chunk_size=300)` trên 3 tài
 
 **Loại:** **custom chunkers** trong [src/custom_chunking.py](../src/custom_chunking.py):
 1. `VietnamesePolicyChunker` — hierarchy-aware (`PHẦN → điều → câu`)
-2. `StructureAwareChunker` — block-aware (table/code/list/heading)
 
 **Mô tả `VietnamesePolicyChunker`:**
 - Split L1 bằng regex `^(?:PHẦN\s+)?(?P<roman>[IVX]+|[A-Z])\.\s+` → tách "Phần" của TOS.
@@ -120,11 +119,6 @@ Chạy `ChunkingStrategyComparator().compare(text, chunk_size=300)` trên 3 tài
 - Mỗi điều ≤ `max_chunk_size` (600) thành 1 chunk; điều quá dài → split câu bằng `(?<=[.!?])[\s\n]+` rồi gom greedy.
 - Khi detect dòng bắt đầu `|` liên tiếp → giữ **nguyên bảng** làm 1 chunk (không cắt giữa rows).
 - Emit `(text, {muc, dieu, cau, chunk_index})` qua `chunk_with_metadata()`.
-
-**Mô tả `StructureAwareChunker`:**
-- Parse text thành các block: `heading`, `paragraph`, `table`, `code`, `list`, `html_block`.
-- Pack greedy ≤ `max_chunk_size`; **4 loại block "protected"** (table/code/list/html_block) **không bao giờ bị cắt**.
-- Block protected lớn hơn limit → emit như 1 chunk độc lập với `metadata["oversized"]=True`.
 
 **Tại sao chọn strategy này cho Cellphones?**
 - Văn bản TOS có hierarchy mục/điều khớp **chính xác** với schema metadata 2 cấp → VPC vừa chunk vừa tự gắn metadata, không cần parser thứ 2.
@@ -164,7 +158,6 @@ def chunk_with_metadata(self, text: str) -> list[tuple[str, dict]]:
 | Toàn bộ 6 docs | best baseline (`by_sentences_3`) | 67 | 485 | 4/5 |
 | Toàn bộ 6 docs | best baseline (`recursive_300`) | 154 | 210 | 4/5 |
 | Toàn bộ 6 docs | **`VietnamesePolicyChunker(600)`** | **74** | **439** | **5/5** ✅ |
-| Toàn bộ 6 docs | **`StructureAwareChunker(600)`** | **60** | **542** | **5/5** ✅ |
 
 Cả 2 custom chunker **vượt 3 baseline** trên hit@3 không filter (5/5 vs 4/5) và đồng thời **dùng ít chunk hơn** (~60-74 vs 123-154) — tiết kiệm chi phí embedding và storage.
 
@@ -172,12 +165,11 @@ Cả 2 custom chunker **vượt 3 baseline** trên hit@3 không filter (5/5 vs 4
 
 | Thành viên | Strategy | Retrieval Score (`hit@3 search`) | Điểm mạnh | Điểm yếu |
 |-----------|----------|----------------------------------|-----------|----------|
-| Tôi | `StructureAwareChunker(600)` | 5/5 | Giữ nguyên bảng giá + danh sách → query về số liệu chính xác | Tốn công implement block parser |
+| Tấn | `StructureAwareChunker(600)` | 5/5 | Giữ nguyên bảng giá + danh sách → query về số liệu chính xác | Tốn công implement block parser |
 | Tôi | `VietnamesePolicyChunker(600)` | 5/5 | Metadata `{muc, dieu}` cho phép filter chính xác đến cấp điều khoản | Phụ thuộc cấu trúc PHẦN — domain khác không reuse được |
-| _(N/A — làm cá nhân, không có nhóm)_ | — | — | — | — |
 
 **Strategy nào tốt nhất cho domain này? Tại sao?**
-**`StructureAwareChunker(600)`** thắng nhẹ: cùng 5/5 hit@3 nhưng chỉ tạo 60 chunks (so với 74 của VPC), tức retrieval index nhỏ hơn ~19% mà chất lượng giữ nguyên. Quan trọng hơn, SAC general hơn (làm việc được trên cả Markdown, HTML, PDF có bảng/code) — domain mở rộng sang manuals/API docs vẫn dùng được mà không cần viết regex riêng. VPC vẫn có giá trị khi cần **metadata semantic** (`muc=IV` cho điều khoản đổi/trả) — dùng cho mục đích kết hợp filter ở cấp pháp lý.
+**`StructureAwareChunker(600)`** thắng nhẹ: cùng 5/5 hit@3 nhưng chỉ tạo 60 chunks (so với 74 của VPC), tức retrieval index nhỏ hơn ~19% mà chất lượng giữ nguyên. Quan trọng hơn, SAC general hơn (làm việc được trên cả Markdown, HTML, PDF có bảng/code) — domain mở rộng sang manuals/API docs vẫn dùng được mà không cần viết regex riêng. VPC vẫn có giá trị khi cần **metadata semantic** (`muc=IV` cho điều khoản đổi/trả), dùng cho mục đích kết hợp filter ở cấp pháp lý.
 
 ---
 
@@ -213,11 +205,78 @@ Theo đúng RAG pattern: (1) `store.search(question, top_k)` lấy top-k chunks,
 ### Test Results
 
 ```
-$ pytest tests/ -v
- 42 passed, 1 warning in 1.88s 
+(main) C:\Projects\vinai\Day-07-Lab-Data-Foundations>pytest tests/ -v
+================================================================================= test session starts =================================================================================
+platform win32 -- Python 3.11.9, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\ADMIN\miniconda3\envs\main\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Projects\vinai\Day-07-Lab-Data-Foundations
+plugins: anyio-4.10.0
+collected 52 items                                                                                                                                                                     
+
+tests/test_custom_chunking.py::test_splits_by_phan_and_dieu PASSED                                                                                                               [  1%]
+tests/test_custom_chunking.py::test_chunk_indices_are_unique_and_monotonic PASSED                                                                                                [  3%]
+tests/test_custom_chunking.py::test_table_is_kept_intact PASSED                                                                                                                  [  5%]
+tests/test_custom_chunking.py::test_chunk_returns_strings_only PASSED                                                                                                            [  7%]
+tests/test_custom_chunking.py::test_empty_text_returns_empty_list PASSED                                                                                                         [  9%]
+tests/test_custom_chunking.py::test_structure_keeps_markdown_table_intact PASSED                                                                                                 [ 11%]
+tests/test_custom_chunking.py::test_structure_keeps_code_block_intact PASSED                                                                                                     [ 13%]
+tests/test_custom_chunking.py::test_structure_keeps_list_together_when_it_fits PASSED                                                                                            [ 15%]
+tests/test_custom_chunking.py::test_structure_metadata_records_block_types_and_index PASSED                                                                                      [ 17%]
+tests/test_custom_chunking.py::test_structure_oversized_protected_block_kept_whole PASSED                                                                                        [ 19%]
+tests/test_solution.py::TestProjectStructure::test_root_main_entrypoint_exists PASSED                                                                                            [ 21%]
+tests/test_solution.py::TestProjectStructure::test_src_package_exists PASSED                                                                                                     [ 23%]
+tests/test_solution.py::TestClassBasedInterfaces::test_chunker_classes_exist PASSED                                                                                              [ 25%]
+tests/test_solution.py::TestClassBasedInterfaces::test_mock_embedder_exists PASSED                                                                                               [ 26%]
+tests/test_solution.py::TestFixedSizeChunker::test_chunks_respect_size PASSED                                                                                                    [ 28%]
+tests/test_solution.py::TestFixedSizeChunker::test_correct_number_of_chunks_no_overlap PASSED                                                                                    [ 30%]
+tests/test_solution.py::TestFixedSizeChunker::test_empty_text_returns_empty_list PASSED                                                                                          [ 32%]
+tests/test_solution.py::TestFixedSizeChunker::test_no_overlap_no_shared_content PASSED                                                                                           [ 34%]
+tests/test_solution.py::TestFixedSizeChunker::test_overlap_creates_shared_content PASSED                                                                                         [ 36%]
+tests/test_solution.py::TestFixedSizeChunker::test_returns_list PASSED                                                                                                           [ 38%]
+tests/test_solution.py::TestFixedSizeChunker::test_single_chunk_if_text_shorter PASSED                                                                                           [ 40%]
+tests/test_solution.py::TestSentenceChunker::test_chunks_are_strings PASSED                                                                                                      [ 42%]
+tests/test_solution.py::TestSentenceChunker::test_respects_max_sentences PASSED                                                                                                  [ 44%]
+tests/test_solution.py::TestSentenceChunker::test_returns_list PASSED                                                                                                            [ 46%]
+tests/test_solution.py::TestSentenceChunker::test_single_sentence_max_gives_many_chunks PASSED                                                                                   [ 48%]
+tests/test_solution.py::TestRecursiveChunker::test_chunks_within_size_when_possible PASSED                                                                                       [ 50%]
+tests/test_solution.py::TestRecursiveChunker::test_empty_separators_falls_back_gracefully PASSED                                                                                 [ 51%]
+tests/test_solution.py::TestRecursiveChunker::test_handles_double_newline_separator PASSED                                                                                       [ 53%]
+tests/test_solution.py::TestRecursiveChunker::test_returns_list PASSED                                                                                                           [ 55%]
+tests/test_solution.py::TestEmbeddingStore::test_add_documents_increases_size PASSED                                                                                             [ 57%]
+tests/test_solution.py::TestEmbeddingStore::test_add_more_increases_further PASSED                                                                                               [ 59%]
+tests/test_solution.py::TestEmbeddingStore::test_initial_size_is_zero PASSED                                                                                                     [ 61%]
+tests/test_solution.py::TestEmbeddingStore::test_search_results_have_content_key PASSED                                                                                          [ 63%]
+tests/test_solution.py::TestEmbeddingStore::test_search_results_have_score_key PASSED                                                                                            [ 65%]
+tests/test_solution.py::TestEmbeddingStore::test_search_results_sorted_by_score_descending PASSED                                                                                [ 67%]
+tests/test_solution.py::TestEmbeddingStore::test_search_returns_at_most_top_k PASSED                                                                                             [ 69%]
+tests/test_solution.py::TestEmbeddingStore::test_search_returns_list PASSED                                                                                                      [ 71%]
+tests/test_solution.py::TestKnowledgeBaseAgent::test_answer_non_empty PASSED                                                                                                     [ 73%]
+tests/test_solution.py::TestKnowledgeBaseAgent::test_answer_returns_string PASSED                                                                                                [ 75%]
+tests/test_solution.py::TestComputeSimilarity::test_identical_vectors_return_1 PASSED                                                                                            [ 76%]
+tests/test_solution.py::TestComputeSimilarity::test_opposite_vectors_return_minus_1 PASSED                                                                                       [ 78%]
+tests/test_solution.py::TestComputeSimilarity::test_orthogonal_vectors_return_0 PASSED                                                                                           [ 80%]
+tests/test_solution.py::TestComputeSimilarity::test_zero_vector_returns_0 PASSED                                                                                                 [ 82%]
+tests/test_solution.py::TestCompareChunkingStrategies::test_counts_are_positive PASSED                                                                                           [ 84%]
+tests/test_solution.py::TestCompareChunkingStrategies::test_each_strategy_has_count_and_avg_length PASSED                                                                        [ 86%]
+tests/test_solution.py::TestCompareChunkingStrategies::test_returns_three_strategies PASSED                                                                                      [ 88%]
+tests/test_solution.py::TestEmbeddingStoreSearchWithFilter::test_filter_by_department PASSED                                                                                     [ 90%]
+tests/test_solution.py::TestEmbeddingStoreSearchWithFilter::test_no_filter_returns_all_candidates PASSED                                                                         [ 92%]
+tests/test_solution.py::TestEmbeddingStoreSearchWithFilter::test_returns_at_most_top_k PASSED                                                                                    [ 94%]
+tests/test_solution.py::TestEmbeddingStoreDeleteDocument::test_delete_reduces_collection_size PASSED                                                                             [ 96%]
+tests/test_solution.py::TestEmbeddingStoreDeleteDocument::test_delete_returns_false_for_nonexistent_doc PASSED                                                                   [ 98%]
+tests/test_solution.py::TestEmbeddingStoreDeleteDocument::test_delete_returns_true_for_existing_doc PASSED                                                                       [100%]
+
+================================================================================== warnings summary ===================================================================================
+tests/test_solution.py::TestEmbeddingStore::test_add_documents_increases_size
+  C:\Users\ADMIN\miniconda3\envs\main\Lib\site-packages\opentelemetry\util\_importlib_metadata.py:32: DeprecationWarning: SelectableGroups dict interface is deprecated. Use select.
+    return EntryPoints(ep for group_eps in eps.values() for ep in group_eps)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================================================================ 52 passed, 1 warning in 1.21s ============================================================================
+
 ```
 
-**Số tests pass:** **42 / 42**
+**Số tests pass:** **52 / 52**
 
 ---
 
@@ -245,7 +304,7 @@ Insight thứ hai từ cặp 4 (+0.402): embedder bị **domain-bias** — hai c
 
 ## 6. Results — Cá nhân (10 điểm)
 
-Chạy 5 benchmark queries với chunker đại diện **`StructureAwareChunker(600)`** + embedder `paraphrase-multilingual-MiniLM-L12-v2` + `EmbeddingStore` từ `src/store.py`. Full output (5 strategies × 5 queries × 2 modes) ở [report/benchmark_output.md](benchmark_output.md), sinh bởi [scripts/run_benchmark.py](../scripts/run_benchmark.py).
+Chạy 5 benchmark queries với chunker đại diện **`VietnamesePolicyChunker(600)`** + embedder `paraphrase-multilingual-MiniLM-L12-v2` + `EmbeddingStore` từ `src/store.py`. Full output (5 strategies × 5 queries × 2 modes) ở [report/benchmark_output.md](benchmark_output.md), sinh bởi [scripts/run_benchmark.py](../scripts/run_benchmark.py).
 
 ### Benchmark Queries & Gold Answers (làm cá nhân, queries tự thống nhất)
 
@@ -257,17 +316,19 @@ Chạy 5 benchmark queries với chunker đại diện **`StructureAwareChunker(
 | 4 | Phí bảo hành mở rộng cho điện thoại trong khoảng giá 18 đến 20 triệu là bao nhiêu? | Khoảng 18.000.001 - 20.000.000: 1 đổi 1 VIP 6 tháng = 900.000đ; 12 tháng = 1.200.000đ. | `bieu_phi_bao_hanh_mo_rong` |
 | 5 | Mua trả góp qua thẻ tín dụng tại Cellphones cần điều kiện gì? | Trả góp 0% qua thẻ tín dụng các ngân hàng hỗ trợ, đơn hàng đủ điều kiện về giá trị tối thiểu. | `huong_dan_mua_tra_gop` |
 
-### Kết Quả Của Tôi — `StructureAwareChunker(600)`, mode `search` (không filter)
+### Kết Quả Của Tôi — `VietnamesePolicyChunker(600)`, mode `search` (không filter)
 
 | # | Query | Top-1 Retrieved Chunk (tóm tắt) | Score | Relevant? | Agent Answer (tóm tắt) |
 |---|-------|---------------------------------|------:|:---------:|------------------------|
-| 1 | Cellphones.com.vn do công ty nào sở hữu... | `tos` — "Website thương mại điện tử Cellphones.com.vn là sở hữu của Công ty TNHH Thương mại và Dịch vụ kỹ thuật Diệu Phúc..." | 0.842 | ✅ | Công ty TNHH Thương mại và Dịch vụ kỹ thuật Diệu Phúc sở hữu; hoạt động theo pháp luật VN |
-| 2 | Phí giao hàng nội thành Hà Nội... | `chinh_sach_giao_hang` — "Tôi ở Hà Nội. Tuy nhiên Sản phẩm Ipad Pro M4..." | 0.627 | ✅ | Nội thành HN giao 1-2h trong 10km, ngoại thành 24-48h |
-| 3 | Tự khui hộp iPhone mới có được bảo hành... | `chinh_sach_khui_hop_apple` — "Nghiêm cấm không được có bất kỳ hành vi thay đổi hình thức..." | 0.570 | ✅ | Không — phải để nhân viên khui hộp tại cửa hàng |
-| 4 | Phí bảo hành mở rộng cho điện thoại 18-20 triệu... | `bieu_phi_bao_hanh_mo_rong` — "Sản phẩm áp dụng: Điện thoại/máy tính bảng mới/cũ. Thời gian: 12 tháng..." | 0.628 | ✅ | 18-20 triệu: 6 tháng=900k, 12 tháng=1.2tr (lấy từ bảng) |
-| 5 | Mua trả góp qua thẻ tín dụng... | `chinh_sach_giao_hang` — "Các quy định khi giao nhận hàng: đơn ≥10 triệu, CellphoneS kiểm tra thẻ..." | 0.794 | ⚠️ Top-1 sai nhưng top-3 vẫn có `huong_dan_mua_tra_gop` | Trả góp 0% qua các ngân hàng liên kết, cà thẻ + ký đơn (từ chunk #2) |
+| 1 | Cellphones.com.vn do công ty nào sở hữu... | `tos` — "PHẦN I. QUY ĐỊNH CHUNG **1. Nguyên tắc chung:** - Website thương mại điện tử Cellphones.com.vn là sở hữu của Công ty TNHH Thương mại và Dịch vụ kỹ thuật Diệu Phúc..." | 0.850 | ✅ | Công ty TNHH Thương mại và Dịch vụ kỹ thuật Diệu Phúc sở hữu; hoạt động theo pháp luật VN |
+| 2 | Phí giao hàng nội thành Hà Nội... | `chinh_sach_giao_hang` — "Giao & lắp đặt (đối với hàng cồng kềnh/điện máy): Điều hòa, máy giặt, máy lạnh, tủ lạnh..." | 0.615 | ✅ | Nội thành HN giao 1-2h trong 10km, ngoại thành 24-48h |
+| 3 | Tự khui hộp iPhone mới có được bảo hành... | `chinh_sach_khui_hop_apple` — "Sản phẩm Apple bắt buộc khui (mở) hộp và kích hoạt bảo hành điện tử ngay tại cửa hàng hoặc qua nhân viên..." | 0.607 | ✅ | Không — phải để nhân viên khui hộp tại cửa hàng |
+| 4 | Phí bảo hành mở rộng cho điện thoại 18-20 triệu... | `chinh_sach_giao_hang` — "Trường hợp Quý khách không cung cấp đầy đủ chứng từ trên, CellphoneS xin phép thu 8% hoặc 10%..." | 0.694 | ⚠️ Top-1 sai nhưng top-2 là `bieu_phi_bao_hanh_mo_rong` ✅ | 18-20 triệu: 6 tháng=900k, 12 tháng=1.2tr (lấy từ chunk #2) |
+| 5 | Mua trả góp qua thẻ tín dụng... | `huong_dan_mua_tra_gop` — "Mua trả góp bằng thẻ tín dụng trực tiếp tại các cửa hàng với các ngân hàng có liên kết..." | 0.716 | ✅ | Trả góp 0% qua các ngân hàng liên kết, cà thẻ + ký đơn |
 
 **Bao nhiêu queries trả về chunk relevant trong top-3?** **5 / 5** ✅ (mode `search` không filter)
+
+VPC đạt top-1 đúng cho **4/5 query**; chỉ query 4 (phí bảo hành 18-20tr) bị `chinh_sach_giao_hang` chen lên rank 1 vì chunk đó nói về "kiểm tra thẻ, chứng từ đơn ≥10tr" — keyword "phí" và "triệu" overlap đẩy score lên 0.694 nhưng chunk đúng vẫn nằm rank 2, hit@3 vẫn pass.
 
 Với mode `filter` (`category=...`): **5/5** với mọi strategy, top-1 đúng cho cả 5 queries. Bảng summary tổng hợp:
 
@@ -276,10 +337,10 @@ Với mode `filter` (`category=...`): **5/5** với mọi strategy, top-1 đúng
 | `fixed_size_300` | 123 | 294 | 4/5 | 5/5 |
 | `by_sentences_3` | 67 | 485 | 4/5 | 5/5 |
 | `recursive_300` | 154 | 210 | 4/5 | 5/5 |
-| **`structure_aware_600`** | **60** | **542** | **5/5** | **5/5** |
-| `custom_vn_policy` | 74 | 439 | 5/5 | 5/5 |
+| `structure_aware_600` | 60 | 542 | 5/5 | 5/5 |
+| **`custom_vn_policy`** | **74** | **439** | **5/5** | **5/5** |
 
-**Quan sát:** filter `category` cứu cả 5 strategy → từ 4/5 lên 5/5. Tức metadata filtering là "an toàn lưới" đắt giá khi domain có cross-doc keyword overlap (xem Section 7).
+**Quan sát:** filter `category` cứu cả 5 strategy → từ 4/5 lên 5/5. Tức metadata filtering là "an toàn lưới" đắt giá khi domain có cross-doc keyword overlap (xem Section 7). Với `VietnamesePolicyChunker`, lợi thế thêm là chunk-level metadata `{muc, dieu}` cho phép filter sâu hơn nữa (vd: `muc=IV` cho query về đổi/trả/hoàn tiền) — chi tiết hơn `category` ở cấp document.
 
 ---
 
@@ -352,4 +413,4 @@ Metadata filtering không phải tính năng cho vui — nó là *safety net* ch
 | Results | Cá nhân | 10 / 10 | 5/5 hit@3 với SAC; có summary 5 strategies × 2 modes; query 5 top-1 vẫn lệch (chunk #2 mới đúng) |
 | Core implementation (tests) | Cá nhân | 30 / 30 | 52/52 tests pass (42 cũ + 10 mới cho custom chunkers) |
 | Demo | Nhóm | 4 / 5 | Failure analysis đầy đủ theo checklist EVALUATION.md; trừ 1 vì không có demo trực tiếp |
-| **Tổng** | | **98 / 100** | |
+| **Tổng** | | **88 / 90** | |
