@@ -14,3 +14,9 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+.omx/
+.venv/
+src_w_solution/
+
+.hf-cache
+.sentence-transformers

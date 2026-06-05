@@ -1,6 +1,20 @@
 pytest>=7.0
+python-dotenv>=1.0
+
+# Optional manual-demo extras
+# Install local embedder support with:
+# pip install sentence-transformers
+# # Install OpenAI embedder support with:
+# pip install openai
+# # Install both optional embedders with:
+# pip install openai sentence-transformers
+sentence-transformers>=3.0
+openai>=1.0
 
 # Optional: for bonus tasks
-# chromadb>=0.4.0      # Real vector database integration
-# openai>=1.0          # Real embedding model
-# python-dotenv>=1.0   # Load .env files
+chromadb>=0.4.0      # Real vector database integration
+
+# Part 3 — fetch + clean Cellphones.com.vn policy pages
+requests>=2.31
+beautifulsoup4>=4.12
+markdownify>=0.11
